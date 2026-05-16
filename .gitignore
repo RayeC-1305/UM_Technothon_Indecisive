@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.env
+*.egg-info/
+
+# ESP-IDF build artifacts
+esp32-tx/build/
+esp32-rx/build/
+esp32-tx/sdkconfig
+esp32-rx/sdkconfig
+esp32-tx/sdkconfig.old
+esp32-rx/sdkconfig.old
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

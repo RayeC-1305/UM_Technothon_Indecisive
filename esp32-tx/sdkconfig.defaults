@@ -1,0 +1,6 @@
+# WaveSense TX - sdkconfig.defaults
+# Fixed channel and bandwidth to match the RX and laptop hotspot
+
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=16
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=64
+CONFIG_FREERTOS_HZ=1000
