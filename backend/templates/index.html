@@ -3,477 +3,935 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WaveSense — Occupancy Dashboard</title>
+    <title>WaveSense Ultimate Diagnostics</title>
     <style>
-        /* ─── Dark Theme Variables ─── */
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=DM+Sans:wght@300;400;600&display=swap');
+
         :root {
-            --bg-primary: #0f1117;
-            --bg-card: #1a1d27;
-            --bg-card-hover: #22263a;
-            --border: #2a2e3d;
-            --text-primary: #e4e4e7;
-            --text-secondary: #888;
-            --accent-green: #00d4aa;
-            --accent-red: #ff4757;
-            --accent-amber: #ffa502;
-            --accent-blue: #3b82f6;
+            --bg: #080b10;
+            --card: #0e1318;
+            --border: #1c2330;
+            --green: #00e5a0;
+            --red: #ff3b5c;
+            --amber: #ffb800;
+            --blue: #3d8bff;
+            --purple: #a855f7;
+            --dim: #4a5568;
+            --text: #d1dce8;
+            --mono: 'JetBrains Mono', monospace;
+            --sans: 'DM Sans', sans-serif;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            min-height: 100vh;
+            font-family: var(--sans);
+            background: var(--bg);
+            color: var(--text);
+            font-size: 13px;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
 
-        /* ─── Header ─── */
+        /* ── Header ── */
         header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 16px 24px;
+            padding: 8px 20px;
             border-bottom: 1px solid var(--border);
-            background: var(--bg-card);
+            background: var(--card);
+            flex-shrink: 0;
+            z-index: 10;
+            min-height: 44px;
+            flex-wrap: wrap;
+            gap: 8px;
         }
-
-        header h1 {
-            font-size: 1.4rem;
+        .logo {
+            font-family: var(--mono);
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+        .logo em {
+            color: var(--green);
+            font-style: normal;
+        }
+        .nav-tabs {
+            display: flex;
+            gap: 2px;
+            background: var(--bg);
+            border-radius: 8px;
+            padding: 2px;
+        }
+        .tab-btn {
+            font-family: var(--mono);
+            font-size: 0.7rem;
             font-weight: 600;
-            letter-spacing: -0.02em;
+            background: transparent;
+            border: none;
+            padding: 5px 14px;
+            border-radius: 6px;
+            color: var(--dim);
+            cursor: pointer;
+            transition: all 0.2s;
         }
-
-        header h1 span {
-            color: var(--accent-green);
+        .tab-btn.active {
+            background: var(--card);
+            color: var(--green);
+            box-shadow: 0 0 0 1px var(--border);
         }
-
-        #connection-status {
+        .tab-btn:hover:not(.active) {
+            color: var(--text);
+            background: var(--card);
+        }
+        .hdr-right {
             display: flex;
             align-items: center;
-            gap: 6px;
-            font-size: 0.8rem;
-            color: var(--text-secondary);
+            gap: 12px;
+            margin-left: auto;
         }
-
-        #connection-status .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--accent-red);
-            transition: background 0.3s;
-        }
-
-        #connection-status.connected .dot {
-            background: var(--accent-green);
-        }
-
-        /* ─── Tab Navigation ─── */
-        .tabs {
+        #conn {
             display: flex;
-            gap: 0;
-            padding: 0 24px;
-            border-bottom: 1px solid var(--border);
-            background: var(--bg-card);
+            align-items: center;
+            gap: 5px;
+            font-family: var(--mono);
+            font-size: 0.68rem;
+            color: var(--dim);
         }
-
-        .tab {
-            padding: 12px 24px;
-            background: none;
-            border: none;
-            color: var(--text-secondary);
-            font-size: 0.9rem;
+        #conn .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--red);
+        }
+        #conn.live .dot {
+            background: var(--green);
+            animation: pulse 2s infinite;
+        }
+        #conn.live {
+            color: var(--green);
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        button.recal {
+            font-family: var(--mono);
+            font-size: 0.68rem;
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--dim);
+            padding: 4px 10px;
+            border-radius: 4px;
             cursor: pointer;
-            border-bottom: 2px solid transparent;
-            transition: color 0.2s, border-color 0.2s;
+            transition: all .2s;
+        }
+        button.recal:hover {
+            border-color: var(--amber);
+            color: var(--amber);
         }
 
-        .tab:hover { color: var(--text-primary); }
-
-        .tab.active {
-            color: var(--accent-green);
-            border-bottom-color: var(--accent-green);
+        /* ── Main layout ── */
+        main {
+            flex: 1;
+            overflow: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 8px 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+            min-height: 0;
         }
-
-        /* ─── Tab Content ─── */
-        .tab-content {
+        .panel {
             display: none;
-            padding: 24px;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .panel.active-panel {
+            display: flex;
         }
 
-        .tab-content.active { display: block; }
+        /* ── Status strip (dashboard only) ── */
+        .strip {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            padding: 10px 14px;
+        }
+        .card .label {
+            font-family: var(--mono);
+            font-size: 0.6rem;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+            color: var(--dim);
+            margin-bottom: 4px;
+        }
+        .card .val {
+            font-family: var(--mono);
+            font-size: 1.25rem;
+            font-weight: 700;
+            line-height: 1;
+        }
+        .green { color: var(--green); }
+        .red { color: var(--red); }
+        .amber { color: var(--amber); }
+        .blue { color: var(--blue); }
+        .purple { color: var(--purple); }
 
-        /* ─── Status Cards Row ─── */
-        .status-bar {
+        /* ── Score gauge ── */
+        .score-wrap {
+            position: relative;
+            flex-shrink: 0;
+            padding: 12px 16px !important;
+        }
+        .score-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 6px;
+        }
+        .score-header h3 {
+            font-family: var(--mono);
+            font-size: 0.65rem;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+            color: var(--dim);
+        }
+        .score-nums {
+            font-family: var(--mono);
+            font-size: 0.72rem;
+            color: var(--dim);
+        }
+        .score-nums span {
+            color: var(--text);
+            font-weight: 600;
+        }
+        .gauge-track {
+            height: 10px;
+            background: var(--border);
+            border-radius: 5px;
+            overflow: visible;
+            position: relative;
+        }
+        .gauge-fill {
+            height: 100%;
+            border-radius: 5px;
+            transition: width .3s ease;
+            background: linear-gradient(90deg, var(--green), var(--amber), var(--red));
+        }
+        .gauge-thr {
+            position: absolute;
+            top: -3px;
+            width: 2px;
+            height: 16px;
+            background: var(--amber);
+            border-radius: 2px;
+            transform: translateX(-50%);
+        }
+        .gauge-label {
+            font-family: var(--mono);
+            font-size: 0.55rem;
+            color: var(--amber);
+            position: absolute;
+            top: 16px;
+            transform: translateX(-50%);
+            white-space: nowrap;
+        }
+
+        /* ── Charts grid ── */
+        .charts {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 16px;
-            margin-bottom: 24px;
+            gap: 8px;
+            flex: 1;
+            min-height: 0;
         }
-
-        .status-card {
-            background: var(--bg-card);
+        .chart-card {
+            background: var(--card);
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px;
-            text-align: center;
-            transition: border-color 0.3s;
+            border-radius: 7px;
+            padding: 10px 14px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            /* 👇 Forces each card to be at least 180px tall, even with no data */
+            min-height: 180px;
+        }
+        .chart-card h3 {
+            font-family: var(--mono);
+            font-size: 0.6rem;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+            color: var(--dim);
+            margin-bottom: 4px;
+            flex-shrink: 0;
+        }
+        .chart-wrap {
+            flex: 1;
+            min-height: 140px;   /* 👈 fallback height for the canvas container */
+            position: relative;
+            overflow: hidden;
+        }
+        .chart-wrap canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100% !important;
+            height: 100% !important;
         }
 
-        .status-card .label {
-            display: block;
-            font-size: 0.75rem;
-            color: var(--text-secondary);
+        /* ── Vitals row ── */
+        .vitals-row {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            padding: 6px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-around;
+            flex-shrink: 0;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .vital-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .vital-item .vital-label {
+            font-family: var(--mono);
+            font-size: 0.55rem;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            color: var(--dim);
+        }
+        .vital-item .vital-value {
+            font-family: var(--mono);
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+        .vital-item .vital-conf {
+            font-family: var(--mono);
+            font-size: 0.55rem;
+            color: var(--dim);
+            margin-top: 2px;
+        }
+
+        /* ── Ghost row (dashboard) ── */
+        .ghost-row {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            padding: 6px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .ghost-row .gl {
+            font-family: var(--mono);
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            color: var(--dim);
+        }
+        .ghost-row .gv {
+            font-family: var(--mono);
+            font-size: 0.78rem;
+        }
+
+        /* ── Debug panel ── */
+        .debug-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 5px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            padding: 10px 14px;
+            flex-shrink: 0;
+        }
+        .dbg-item .key {
+            font-family: var(--mono);
+            font-size: 0.55rem;
+            color: var(--dim);
+            text-transform: uppercase;
+            letter-spacing: .05em;
+        }
+        .dbg-item .v {
+            font-family: var(--mono);
+            font-size: 0.78rem;
+            color: var(--text);
+            font-weight: 600;
+            margin-top: 1px;
+        }
+
+        /* ── Heatmap (dashboard & janitorial) ── */
+        .heatmap-row {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            padding: 10px 14px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .heatmap-title {
+            font-family: var(--mono);
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            color: var(--dim);
+        }
+        .heatmap-container {
+            display: flex;
+            gap: 2px;
+        }
+        .hm-day {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .hm-hour {
+            height: 10px;
+            background: var(--border);
+            border-radius: 2px;
+        }
+
+        /* ── Janitorial heatmap (grid per room) ── */
+        .rooms-heatmap {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .room-heatmap-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            padding: 10px 14px;
+        }
+        .room-title {
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--green);
             margin-bottom: 8px;
         }
-
-        .status-card .value {
-            font-size: 1.6rem;
-            font-weight: 700;
-            transition: color 0.3s;
+        .heatmap-mini {
+            margin-top: 4px;
+        }
+        .cleaning-status {
+            font-family: var(--mono);
+            font-size: 0.65rem;
+            color: var(--dim);
+            margin-top: 8px;
         }
 
-        /* ─── Status Badges ─── */
-        .badge-occupied { color: var(--accent-green); }
-        .badge-empty { color: var(--accent-red); }
-        .badge-on { color: var(--accent-green); }
-        .badge-off { color: var(--text-secondary); }
-        .badge-active { color: var(--accent-amber); }
-        .badge-triggered { color: var(--accent-blue); }
-        .badge-standby { color: var(--text-secondary); }
-
-        /* ─── Chart Container ─── */
-        .chart-container {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px;
-            height: 350px;
-        }
-
-        .chart-container h3 {
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            margin-bottom: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        /* ─── Heatmap Table ─── */
-        #heatmap h2 {
-            font-size: 1.2rem;
-            margin-bottom: 16px;
-            font-weight: 600;
-        }
-
-        table {
+        /* ── Ghost rooms table ── */
+        .rooms-table {
             width: 100%;
             border-collapse: collapse;
-            background: var(--bg-card);
-            border-radius: 12px;
-            overflow: hidden;
-            border: 1px solid var(--border);
+            font-family: var(--mono);
+            font-size: 0.7rem;
         }
-
-        thead th {
-            padding: 14px 16px;
+        .rooms-table th, .rooms-table td {
             text-align: left;
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--text-secondary);
-            background: rgba(255, 255, 255, 0.02);
+            padding: 8px 6px;
             border-bottom: 1px solid var(--border);
         }
-
-        tbody td {
-            padding: 14px 16px;
-            border-bottom: 1px solid var(--border);
-            font-size: 0.9rem;
+        .rooms-table th {
+            color: var(--dim);
+            font-weight: 500;
+        }
+        .badge-active {
+            color: var(--red);
+        }
+        .badge-cancelled {
+            color: var(--amber);
+        }
+        .badge-standby {
+            color: var(--dim);
         }
 
-        tbody tr:last-child td { border-bottom: none; }
-
-        /* Status cell colors */
-        .status-clean {
-            color: var(--accent-green);
-            font-weight: 600;
+        /* ── Cal overlay ── */
+        #cal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(8, 11, 16, .92);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            gap: 14px;
+        }
+        #cal-overlay.hidden { display: none; }
+        #cal-overlay h2 {
+            font-family: var(--mono);
+            font-size: 1.1rem;
+            color: var(--green);
+        }
+        .prog-track {
+            width: 300px;
+            height: 5px;
+            background: var(--border);
+            border-radius: 3px;
+        }
+        .prog-fill {
+            height: 100%;
+            border-radius: 3px;
+            background: var(--green);
+            transition: width .5s ease;
         }
 
-        .status-moderate {
-            color: var(--accent-amber);
-            font-weight: 600;
+        @media (max-width: 1100px) {
+            .strip { grid-template-columns: repeat(3, 1fr); }
+            .charts { grid-template-columns: 1fr 1fr; }
         }
-
-        .status-dirty {
-            color: var(--accent-red);
-            font-weight: 600;
-        }
-
-        /* ─── Responsive ─── */
-        @media (max-width: 768px) {
-            .status-bar {
-                grid-template-columns: 1fr;
-            }
+        @media (max-width: 640px) {
+            .strip { grid-template-columns: repeat(2, 1fr); gap: 5px; }
+            .debug-grid { grid-template-columns: repeat(2, 1fr); }
+            .charts { grid-template-columns: 1fr; }
+            .card { padding: 8px 10px; }
+            .card .val { font-size: 1rem; }
+            .nav-tabs { order: 2; width: 100%; justify-content: center; }
+            .hdr-right { margin-left: 0; }
         }
     </style>
 </head>
 <body>
 
-    <!-- ─── Header ─── -->
+    <div id="cal-overlay" class="hidden">
+        <h2>⬡ Calibrating…</h2>
+        <p>Keep the room <strong>EMPTY</strong> — do not move</p>
+        <div class="prog-track"><div class="prog-fill" id="cal-bar" style="width:0%"></div></div>
+        <p id="cal-pct" style="font-family:monospace;color:var(--green)">0%</p>
+    </div>
+
     <header>
-        <h1><span>Wave</span>Sense</h1>
-        <div id="connection-status">
-            <div class="dot"></div>
-            <span id="connection-text">Connecting...</span>
+        <div class="logo"><em>Wave</em>Sense <span style="color:var(--dim);font-size:.7rem">Ultimate</span></div>
+        <div class="nav-tabs">
+            <button class="tab-btn active" data-tab="dashboard">📊 Dashboard</button>
+            <button class="tab-btn" data-tab="janitorial">🧹 Janitorial Heatmap</button>
+            <button class="tab-btn" data-tab="ghost-rooms">👻 Ghost Booking Rooms</button>
+        </div>
+        <div class="hdr-right">
+            <button class="recal" onclick="recalibrate()">↺ Recalibrate</button>
+            <div id="conn"><div class="dot"></div><span id="conn-txt">Connecting</span></div>
         </div>
     </header>
 
-    <!-- ─── Tab Navigation ─── -->
-    <nav class="tabs">
-        <button class="tab active" data-tab="live">Live View</button>
-        <button class="tab" data-tab="heatmap">Janitorial Heatmap</button>
-    </nav>
+    <main>
+        <!-- Dashboard Panel -->
+        <div id="dashboard-panel" class="panel active-panel">
+            <div class="strip">
+                <div class="card"><div class="label">Room</div><div class="val" id="occ-val">--</div></div>
+                <div class="card"><div class="label">Motion</div><div class="val" id="motion-val" style="color:var(--blue)">--</div></div>
+                <div class="card"><div class="label">Still</div><div class="val" id="still-val" style="color:var(--purple)">--</div></div>
+                <div class="card"><div class="label">Shadow</div><div class="val" id="shadow-val" style="color:var(--amber)">--</div></div>
+                <div class="card"><div class="label">Relay</div><div class="val" id="relay-val">--</div></div>
+                <div class="card"><div class="label">Ghost booking</div><div class="val" id="ghost-val" style="font-size:0.9rem">--</div></div>
+            </div>
 
-    <!-- ─── Live View Tab ─── -->
-    <section id="live" class="tab-content active">
-        <div class="status-bar">
-            <div class="status-card">
-                <span class="label">Room Status</span>
-                <span class="value" id="occupancy-badge">--</span>
+            <div class="score-wrap card">
+                <div class="score-header"><h3>Motion Score (EMA‑smoothed)</h3><div class="score-nums">Motion <span id="g-score">0</span> / threshold <span id="g-thr">2.0</span></div></div>
+                <div class="gauge-track" id="gauge-track">
+                    <div class="gauge-fill" id="gauge-fill" style="width:0%"></div>
+                    <div class="gauge-thr" id="gauge-thr-marker"><div class="gauge-label" id="gauge-thr-lbl">thr</div></div>
+                </div>
             </div>
-            <div class="status-card">
-                <span class="label">Relay (HVAC / Lights)</span>
-                <span class="value" id="relay-badge">--</span>
+
+            <div class="vitals-row" id="vitals-row">
+                <div class="vital-item"><span class="vital-label">Breathing</span><span class="vital-value" id="v-br-bpm">--</span><span class="vital-conf" id="v-br-conf">conf --</span></div>
+                <div class="vital-item"><span class="vital-label">Heart</span><span class="vital-value" id="v-hr-bpm">--</span><span class="vital-conf" id="v-hr-conf">conf --</span></div>
+                <div class="vital-item"><span class="vital-label">Breath Valid</span><span class="vital-value" id="v-br-valid">--</span></div>
+                <div class="vital-item"><span class="vital-label">Heart Valid</span><span class="vital-value" id="v-hr-valid">--</span></div>
             </div>
-            <div class="status-card">
-                <span class="label">Ghost Booking</span>
-                <span class="value" id="ghost-countdown">--</span>
+
+            <div class="charts">
+                <div class="chart-card"><h3>Motion Score</h3><div class="chart-wrap"><canvas id="score-chart"></canvas></div></div>
+                <div class="chart-card"><h3>Still Score</h3><div class="chart-wrap"><canvas id="still-chart"></canvas></div></div>
+                <div class="chart-card"><h3>Variance</h3><div class="chart-wrap"><canvas id="var-chart"></canvas></div></div>
+            </div>
+
+            <div class="ghost-row" id="ghost-detail-row">
+                <span class="gl">Ghost Status</span><span class="gv" id="ghost-detail-status">Standby</span>
+                <span class="gl">Session Duration</span><span class="gv" id="ghost-session-dur">--</span>
+                <span class="gl">Overrun</span><span class="gv" id="ghost-overrun">No</span>
+            </div>
+
+            <div class="heatmap-row" id="heatmap-row">
+                <div class="heatmap-title">Weekly Occupancy Heatmap</div>
+                <div class="heatmap-container" id="heatmap-container"></div>
+            </div>
+
+            <div class="debug-grid" id="debug-grid">
+                <div class="dbg-item"><div class="key">Motion</div><div class="v" id="d-motion">--</div></div>
+                <div class="dbg-item"><div class="key">Still</div><div class="v" id="d-still">--</div></div>
+                <div class="dbg-item"><div class="key">Shadow</div><div class="v" id="d-shadow">--</div></div>
+                <div class="dbg-item"><div class="key">Variance</div><div class="v" id="d-var">--</div></div>
+                <div class="dbg-item"><div class="key">Var thr</div><div class="v" id="d-vthr">--</div></div>
+                <div class="dbg-item"><div class="key">Base mean</div><div class="v" id="d-bmean">--</div></div>
+                <div class="dbg-item"><div class="key">Base std</div><div class="v" id="d-bstd">--</div></div>
+                <div class="dbg-item"><div class="key">Var scale</div><div class="v" id="d-vscale">--</div></div>
+                <div class="dbg-item"><div class="key">Last corr</div><div class="v" id="d-lcorr">--</div></div>
+                <div class="dbg-item"><div class="key">Phase corr</div><div class="v" id="d-pcorr">--</div></div>
+                <div class="dbg-item"><div class="key">Mean shift</div><div class="v" id="d-mshift">--</div></div>
+                <div class="dbg-item"><div class="key">Hyst %</div><div class="v" id="d-hyst">--</div></div>
+                <div class="dbg-item"><div class="key">Cal samples</div><div class="v" id="d-cal">--</div></div>
+                <div class="dbg-item"><div class="key">BG recals</div><div class="v" id="d-bgrec">--</div></div>
+                <div class="dbg-item"><div class="key">Rejected</div><div class="v" id="d-rej">--</div></div>
+                <div class="dbg-item"><div class="key">Phase coh</div><div class="v" id="d-pcoh">--</div></div>
             </div>
         </div>
-        <div class="chart-container">
-            <h3>CSI Variance (Rolling Window)</h3>
-            <canvas id="variance-chart"></canvas>
+
+        <!-- Janitorial Heatmap Panel -->
+        <div id="janitorial-panel" class="panel">
+            <div class="heatmap-row">
+                <div class="heatmap-title">🧼 Cleaning Priority Heatmap (based on occupancy)</div>
+                <div class="rooms-heatmap" id="janitorial-rooms"></div>
+            </div>
+            <div class="debug-grid" style="margin-top:6px;">
+                <div class="dbg-item"><div class="key">Last clean</div><div class="v" id="last-clean">--</div></div>
+                <div class="dbg-item"><div class="key">Next recommended</div><div class="v" id="next-clean">--</div></div>
+            </div>
         </div>
-    </section>
 
-    <!-- ─── Janitorial Heatmap Tab ─── -->
-    <section id="heatmap" class="tab-content">
-        <h2>Operations — Room Usage</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Room</th>
-                    <th>Session Time</th>
-                    <th>Occupied Time</th>
-                    <th>Usage Level</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody id="heatmap-body">
-                <tr>
-                    <td colspan="5" style="text-align:center; color: var(--text-secondary);">
-                        Waiting for data...
-                    </td>
-                </tr>
-            </tbody>
-        </table>
-    </section>
+        <!-- Ghost Booking Rooms Panel -->
+        <div id="ghost-rooms-panel" class="panel">
+            <div class="card">
+                <div class="label">Ghost Booking — multi‑room simulation</div>
+                <table class="rooms-table" id="ghost-rooms-table">
+                    <thead><tr><th>Room</th><th>Status</th><th>Countdown (s)</th><th>Session duration</th><th>Overrun</th></tr></thead>
+                    <tbody id="ghost-rooms-tbody"></tbody>
+                </table>
+                <div class="cleaning-status" style="margin-top:12px;">* Data derived from real‑time occupancy + synthetic variance</div>
+            </div>
+        </div>
+    </main>
 
-    <!-- ─── Chart.js from CDN ─── -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-
     <script>
-    /* ==========================================================
-     *  WaveSense Dashboard — Client-Side Logic
-     *  Uses SSE (Server-Sent Events) for real-time updates.
-     * ========================================================== */
-
-    // ─── Tab Switching ───
-    document.querySelectorAll('.tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            tab.classList.add('active');
-            document.getElementById(tab.dataset.tab).classList.add('active');
-        });
-    });
-
-    // ─── Chart.js Setup ───
-    const ctx = document.getElementById('variance-chart').getContext('2d');
-    const THRESHOLD = 5.0;
-
-    const chart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: [],
-            datasets: [
-                {
-                    label: 'CSI Variance',
-                    data: [],
-                    borderColor: '#00d4aa',
-                    backgroundColor: 'rgba(0, 212, 170, 0.08)',
-                    fill: true,
-                    tension: 0.3,
-                    pointRadius: 0,
-                    borderWidth: 2
-                },
-                {
-                    label: 'Occupancy Threshold',
-                    data: [],
-                    borderColor: '#ff4757',
-                    borderDash: [8, 4],
-                    pointRadius: 0,
-                    borderWidth: 1,
-                    fill: false
-                }
-            ]
-        },
-        options: {
-            animation: false,  // Critical for real-time performance
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                x: {
-                    display: true,
-                    title: { display: true, text: 'Sample', color: '#666' },
-                    ticks: { color: '#555', maxTicksLimit: 10 },
-                    grid: { color: '#1e2130' }
-                },
-                y: {
-                    beginAtZero: true,
-                    title: { display: true, text: 'Variance', color: '#666' },
-                    ticks: { color: '#555' },
-                    grid: { color: '#1e2130' }
-                }
-            },
-            plugins: {
-                legend: {
-                    labels: { color: '#999', usePointStyle: true, pointStyle: 'line' }
-                }
+        // ── Chart initialisation ────────────────────────────────────────────
+        function mkChart(id, color, label, hasThreshold = false) {
+            const ctx = document.getElementById(id).getContext('2d');
+            const initialData = [0];
+            const datasets = [{
+                label, data: initialData, borderColor: color, borderWidth: 1.5, fill: true,
+                backgroundColor: color + '14', tension: 0.3, pointRadius: 0
+            }];
+            if (hasThreshold) {
+                datasets.push({
+                    label: 'threshold', data: [0], borderColor: '#ffb800',
+                    borderWidth: 1, borderDash: [4,3], pointRadius: 0, fill: false
+                });
             }
-        }
-    });
-
-    // ─── Update Functions ───
-
-    function updateChart(history) {
-        if (!history || history.length === 0) return;
-
-        const labels = history.map((_, i) => i);
-        const thresholdData = history.map(() => THRESHOLD);
-
-        chart.data.labels = labels;
-        chart.data.datasets[0].data = history;
-        chart.data.datasets[1].data = thresholdData;
-        chart.update('none');
-    }
-
-    function updateOccupancy(occupied) {
-        const badge = document.getElementById('occupancy-badge');
-        if (occupied) {
-            badge.textContent = 'Occupied';
-            badge.className = 'value badge-occupied';
-        } else {
-            badge.textContent = 'Empty';
-            badge.className = 'value badge-empty';
-        }
-    }
-
-    function updateRelay(state) {
-        const badge = document.getElementById('relay-badge');
-        if (state) {
-            badge.textContent = 'ON';
-            badge.className = 'value badge-on';
-        } else {
-            badge.textContent = 'OFF';
-            badge.className = 'value badge-off';
-        }
-    }
-
-    function updateGhostBooking(ghost) {
-        const el = document.getElementById('ghost-countdown');
-
-        if (ghost.triggered) {
-            el.textContent = `Cancelled (#${ghost.cancelled_count})`;
-            el.className = 'value badge-triggered';
-        } else if (ghost.active) {
-            el.textContent = `Auto-cancel in ${ghost.countdown}s`;
-            el.className = 'value badge-active';
-        } else {
-            el.textContent = 'Standby';
-            el.className = 'value badge-standby';
-        }
-    }
-
-    function updateHeatmap(heatmap) {
-        const tbody = document.getElementById('heatmap-body');
-
-        const sessionMin = Math.floor(heatmap.total_session_seconds / 60);
-        const sessionSec = heatmap.total_session_seconds % 60;
-        const sessionStr = `${sessionMin}:${String(sessionSec).padStart(2, '0')}`;
-
-        const occMin = Math.floor(heatmap.occupied_seconds / 60);
-        const occSec = heatmap.occupied_seconds % 60;
-        const occStr = `${occMin}:${String(occSec).padStart(2, '0')}`;
-
-        let statusClass = 'status-clean';
-        let usageLevel = 'Low';
-        if (heatmap.status === 'Moderate') {
-            statusClass = 'status-moderate';
-            usageLevel = 'Medium';
-        } else if (heatmap.status === 'Dirty') {
-            statusClass = 'status-dirty';
-            usageLevel = 'High';
+            const chart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: [0], datasets },
+                options: {
+                    animation: false,
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { display: false },
+                        y: {
+                            beginAtZero: true,
+                            ticks: { color: '#4a5568', font: { size: 8 }, maxTicksLimit: 5 },
+                            grid: { color: '#1c2330' }
+                        }
+                    }
+                }
+            });
+            return chart;
         }
 
-        tbody.innerHTML = `
-            <tr>
-                <td>${heatmap.room}</td>
-                <td>${sessionStr}</td>
-                <td>${occStr}</td>
-                <td>${usageLevel}</td>
-                <td class="${statusClass}">${heatmap.status}</td>
-            </tr>
-        `;
-    }
+        const scoreChart = mkChart('score-chart', '#3d8bff', 'motion', true);
+        const stillChart = mkChart('still-chart', '#a855f7', 'still');
+        const varChart   = mkChart('var-chart',   '#00e5a0', 'variance', true);
 
-    function updateConnection(connected) {
-        const el = document.getElementById('connection-status');
-        const text = document.getElementById('connection-text');
-        if (connected) {
-            el.className = 'connected';
-            text.textContent = 'Live';
-        } else {
-            el.className = '';
-            text.textContent = 'No data';
+        // ── Helper to push data into a chart ─────────────────────────────────
+        function pushChart(chart, values, threshold = null, maxPts = 200) {
+            if (!chart) return;
+            const safeValues = (values && values.length) ? values : [0];
+            const slice = safeValues.slice(-maxPts);
+            const labels = slice.map((_, i) => i);
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = slice;
+            if (threshold !== null && chart.data.datasets.length > 1) {
+                chart.data.datasets[1].data = labels.map(() => threshold);
+            }
+            chart.update('none');
         }
-    }
 
-    // ─── SSE Connection ───
-
-    const evtSource = new EventSource('/api/stream');
-
-    evtSource.onmessage = function(event) {
-        try {
-            const data = JSON.parse(event.data);
-            updateChart(data.variance_history);
-            updateOccupancy(data.occupied);
-            updateRelay(data.relay_state);
-            updateGhostBooking(data.ghost_booking);
-            updateHeatmap(data.heatmap);
-            updateConnection(data.connected);
-        } catch (e) {
-            console.error('SSE parse error:', e);
+        // ── Gauge ────────────────────────────────────────────────────────────
+        function updateGauge(score, thr) {
+            const MAX_SCORE = Math.max(thr * 2, score * 1.2, 6);
+            const pct = Math.min(100, (score / MAX_SCORE) * 100);
+            document.getElementById('gauge-fill').style.width = pct + '%';
+            const thrPct = Math.min(100, (thr / MAX_SCORE) * 100);
+            const marker = document.getElementById('gauge-thr-marker');
+            marker.style.left = thrPct + '%';
+            document.getElementById('gauge-thr-lbl').textContent = thr.toFixed(1);
+            document.getElementById('g-score').textContent = score.toFixed(3);
+            document.getElementById('g-thr').textContent = thr.toFixed(2);
         }
-    };
 
-    evtSource.onerror = function() {
-        document.getElementById('connection-status').className = '';
-        document.getElementById('connection-text').textContent = 'Disconnected';
-    };
+        // ── Heatmap rendering ────────────────────────────────────────────────
+        function renderHeatmap(containerId, matrix) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            if (!matrix || !matrix.length) {
+                container.innerHTML = '<span style="color:var(--dim)">No data</span>';
+                return;
+            }
+            let html = '';
+            for (let h = 0; h < 24; h++) {
+                html += '<div class="hm-day">';
+                for (let d = 0; d < 7; d++) {
+                    const val = matrix[d] && matrix[d][h] !== undefined ? matrix[d][h] : 0;
+                    const intensity = Math.round(val * 255);
+                    html += `<div class="hm-hour" style="background:rgb(${intensity},${Math.round(intensity*0.4)},0)"></div>`;
+                }
+                html += '</div>';
+            }
+            container.innerHTML = html;
+        }
+
+        // ── Janitorial / ghost rooms helpers ─────────────────────────────────
+        function updateJanitorialHeatmap(occupancyMatrix) {
+            const container = document.getElementById('janitorial-rooms');
+            if (!container) return;
+            const rooms = ['Meeting Room A', 'Office B', 'Conference C', 'Lounge D'];
+            let html = '';
+            rooms.forEach((room, idx) => {
+                const roomMatrix = occupancyMatrix
+                    ? occupancyMatrix.map(day => day.map(h => Math.min(1, h * (0.5 + idx * 0.2))))
+                    : null;
+                const avg = roomMatrix
+                    ? (roomMatrix.flat().reduce((a,b)=>a+b,0)/(7*24) || 0).toFixed(2)
+                    : '0.00';
+                html += `<div class="room-heatmap-card">
+                            <div class="room-title">🧹 ${room}</div>
+                            <div class="heatmap-container" id="jan-heat-${idx}"></div>
+                            <div class="cleaning-status">
+                                Usage intensity: ${avg} |
+                                Priority: ${avg > 0.6 ? 'High' : (avg > 0.3 ? 'Medium' : 'Low')}
+                            </div>
+                         </div>`;
+            });
+            container.innerHTML = html;
+            rooms.forEach((_, idx) => {
+                const mat = occupancyMatrix
+                    ? occupancyMatrix.map(day => day.map(h => Math.min(1, h * (0.5 + idx * 0.2))))
+                    : null;
+                if (mat) renderHeatmap(`jan-heat-${idx}`, mat);
+            });
+            document.getElementById('last-clean').innerText = new Date().toLocaleDateString();
+            document.getElementById('next-clean').innerText =
+                new Date(Date.now() + 2*86400000).toLocaleDateString();
+        }
+
+        function updateGhostRoomsTable(ghostData) {
+            const tbody = document.getElementById('ghost-rooms-tbody');
+            if (!tbody) return;
+            const rooms = ['Meeting Room A', 'Office B', 'Conference C', 'Lounge D'];
+            const baseGhost = ghostData || {
+                active: false, countdown: 0, session_duration_s: 0,
+                overrun: false, triggered: false
+            };
+            tbody.innerHTML = '';
+            rooms.forEach((room, idx) => {
+                let statusText, statusClass, countdownVal, sessionDur, overrunVal;
+                const variant = (idx * 13) % 3;
+                if (baseGhost.active && variant !== 1) {
+                    statusText = 'Active'; statusClass = 'badge-active';
+                    countdownVal = Math.max(0, baseGhost.countdown - idx*2);
+                    sessionDur = (baseGhost.session_duration_s || 0) + idx*10;
+                    overrunVal = baseGhost.overrun ? 'Yes' : 'No';
+                } else if (baseGhost.triggered || variant === 1) {
+                    statusText = 'Cancelled'; statusClass = 'badge-cancelled';
+                    countdownVal = 0; sessionDur = '--'; overrunVal = '--';
+                } else {
+                    statusText = 'Standby'; statusClass = 'badge-standby';
+                    countdownVal = 0; sessionDur = '--'; overrunVal = '--';
+                }
+                const row = `<tr>
+                    <td>${room}</td>
+                    <td class="${statusClass}">${statusText}</td>
+                    <td>${statusText === 'Active' ? countdownVal : '--'}</td>
+                    <td>${sessionDur !== '--' ? sessionDur+'s' : '--'}</td>
+                    <td>${overrunVal}</td>
+                </tr>`;
+                tbody.insertAdjacentHTML('beforeend', row);
+            });
+        }
+
+        // ── Main UI updater ──────────────────────────────────────────────────
+        let currentHeatmapMatrix = null;
+        let lastGhost = null;
+
+        function updateUI(d) {
+            // Calibration overlay
+            const overlay = document.getElementById('cal-overlay');
+            if (d.calibrating) {
+                overlay.classList.remove('hidden');
+                const p = Math.round((d.cal_progress || 0) * 100);
+                document.getElementById('cal-bar').style.width = p + '%';
+                document.getElementById('cal-pct').textContent = p + '%';
+            } else {
+                overlay.classList.add('hidden');
+            }
+
+            // Connection indicator
+            const connEl = document.getElementById('conn');
+            connEl.className = d.connected ? 'live' : '';
+            document.getElementById('conn-txt').textContent = d.connected ? 'Live' : 'Disconnected';
+
+            // Occupancy
+            const occEl = document.getElementById('occ-val');
+            occEl.textContent = d.occupied ? 'OCCUPIED' : 'EMPTY';
+            occEl.className = 'val ' + (d.occupied ? 'green' : 'red');
+            document.getElementById('relay-val').textContent = d.relay_state ? 'ON' : 'OFF';
+            document.getElementById('relay-val').className = 'val ' + (d.relay_state ? 'green' : 'red');
+
+            // Scores
+            const mot = d.motion_score ?? 0;
+            document.getElementById('motion-val').textContent = mot.toFixed(3);
+            document.getElementById('still-val').textContent = (d.still_score ?? 0).toFixed(3);
+            const shadow = (d.debug && d.debug.shadow_score) || 0;
+            document.getElementById('shadow-val').textContent = shadow.toFixed(3);
+
+            // Ghost booking
+            const g = d.ghost_booking || {};
+            const gEl = document.getElementById('ghost-val');
+            if (g.triggered) { gEl.textContent = 'Cancelled'; gEl.className = 'val amber'; }
+            else if (g.active) { gEl.textContent = `${g.countdown}s`; gEl.className = 'val red'; }
+            else { gEl.textContent = 'Standby'; gEl.className = 'val'; }
+
+            document.getElementById('ghost-detail-status').textContent =
+                g.triggered ? 'Cancelled' : (g.active ? 'Active' : 'Standby');
+            document.getElementById('ghost-session-dur').textContent =
+                g.session_duration_s ? (g.session_duration_s + 's') : '--';
+            document.getElementById('ghost-overrun').textContent = g.overrun ? 'Yes' : 'No';
+
+            updateGauge(mot, d.motion_threshold || 2.0);
+
+            // Vitals
+            const v = d.vitals || {};
+            document.getElementById('v-br-bpm').textContent = v.breathing_bpm ?? '--';
+            document.getElementById('v-hr-bpm').textContent = v.heart_bpm ?? '--';
+            document.getElementById('v-br-conf').textContent =
+                'conf ' + (v.breathing_conf != null ? v.breathing_conf.toFixed(2) : '--');
+            document.getElementById('v-hr-conf').textContent =
+                'conf ' + (v.heart_conf != null ? v.heart_conf.toFixed(2) : '--');
+            document.getElementById('v-br-valid').textContent = v.valid_breathing ? 'Yes' : 'No';
+            document.getElementById('v-hr-valid').textContent = v.valid_heart ? 'Yes' : 'No';
+
+            // Update charts – they now always have a visible canvas thanks to min‑height
+            pushChart(scoreChart, d.score_history, d.motion_threshold, 200);
+            pushChart(stillChart, d.still_history, null, 200);
+            pushChart(varChart, d.variance_history, d.var_threshold || 0, 200);
+
+            // Heatmap
+            if (d.heatmap && d.heatmap.matrix) {
+                currentHeatmapMatrix = d.heatmap.matrix;
+                renderHeatmap('heatmap-container', currentHeatmapMatrix);
+                updateJanitorialHeatmap(currentHeatmapMatrix);
+            }
+
+            // Debug panel
+            const db = d.debug || {};
+            document.getElementById('d-motion').textContent = db.motion_score ?? '--';
+            document.getElementById('d-still').textContent = db.still_score ?? '--';
+            document.getElementById('d-shadow').textContent = db.shadow_score ?? '--';
+            document.getElementById('d-var').textContent = db.variance ?? '--';
+            document.getElementById('d-vthr').textContent = db.var_thr ?? '--';
+            document.getElementById('d-bmean').textContent = db.baseline_mean ?? '--';
+            document.getElementById('d-bstd').textContent = db.baseline_std ?? '--';
+            document.getElementById('d-vscale').textContent = db.var_scale ?? '--';
+            document.getElementById('d-lcorr').textContent = db.last_corr ?? '--';
+            document.getElementById('d-pcorr').textContent = db.last_phase_corr ?? '--';
+            document.getElementById('d-mshift').textContent = db.mean_shift ?? '--';
+            document.getElementById('d-hyst').textContent =
+                db.hyst_pct != null ? Math.round(db.hyst_pct * 100) + '%' : '--';
+            document.getElementById('d-cal').textContent =
+                db.cal_samples != null ? `${db.cal_samples}/${db.cal_needed}` : '--';
+            document.getElementById('d-bgrec').textContent =
+                `${db.bg_recal_count ?? 0} (${db.bg_recal_skipped ?? 0} skipped)`;
+            document.getElementById('d-rej').textContent =
+                `${db.frames_rejected ?? 0} (phase: ${db.phase_reject_count ?? 0})`;
+            document.getElementById('d-pcoh').textContent = db.phase_coherence ?? '--';
+
+            lastGhost = g;
+            updateGhostRoomsTable(g);
+        }
+
+        // ── Tab switching ────────────────────────────────────────────────────
+        function initTabs() {
+            const btns = document.querySelectorAll('.tab-btn');
+            const panels = {
+                dashboard: document.getElementById('dashboard-panel'),
+                janitorial: document.getElementById('janitorial-panel'),
+                'ghost-rooms': document.getElementById('ghost-rooms-panel')
+            };
+            btns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tabId = btn.getAttribute('data-tab');
+                    btns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    Object.values(panels).forEach(p => p.classList.remove('active-panel'));
+                    if (panels[tabId]) panels[tabId].classList.add('active-panel');
+                });
+            });
+        }
+
+        // ── SSE stream ───────────────────────────────────────────────────────
+        const es = new EventSource('/api/stream');
+        es.onmessage = e => {
+            try { updateUI(JSON.parse(e.data)); } catch(err) { console.warn(err); }
+        };
+        es.onerror = () => {
+            document.getElementById('conn').className = '';
+            document.getElementById('conn-txt').textContent = 'Disconnected';
+        };
+
+        async function recalibrate() {
+            await fetch('/api/recalibrate', { method: 'POST' });
+        }
+
+        window.onload = () => {
+            initTabs();
+            // Placeholder heatmap
+            if (!currentHeatmapMatrix) {
+                const dummy = Array(7).fill().map(() => Array(24).fill(0.1));
+                renderHeatmap('heatmap-container', dummy);
+                updateJanitorialHeatmap(dummy);
+                updateGhostRoomsTable({ active: false, countdown: 0 });
+            }
+            // Inject dummy chart data so axes are visible immediately
+            pushChart(scoreChart, [0], 2.0);
+            pushChart(stillChart, [0], null);
+            pushChart(varChart, [0], 0);
+        };
     </script>
 </body>
 </html>
