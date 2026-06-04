@@ -23,3 +23,4 @@ esp32-rx/sdkconfig.old
 # OS
 .DS_Store
 Thumbs.db
+backend/service-account.json
