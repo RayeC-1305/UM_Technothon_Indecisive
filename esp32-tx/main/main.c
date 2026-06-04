@@ -1,135 +1,246 @@
 /*
- * WaveSense ESP32-TX — Transmitter Firmware
- *
- * Broadcasts ESP-NOW packets at 100 Hz on a fixed Wi-Fi channel.
- * The RX node captures these frames to extract CSI (Channel State Information).
- *
- * This node is completely standalone — no AP association, no MQTT, no network.
- * Just raw 802.11 frames for the RX to sniff.
- *
- * Hardware: ESP32-WROOM-32, powered by USB battery bank.
+ * WaveSense ESP32-S3 TX v7
+ * Uses raw 802.11 probe request frames instead of ESP-NOW
+ * This makes TX MAC appear correctly in RX CSI callback
+ * so MAC filter works and RX only gets TX frames at 100Hz
  */
-
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
+#include <stdlib.h>
 #include "nvs_flash.h"
 #include "esp_mac.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_event.h"
-#include "esp_now.h"
+#include "mqtt_client.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
 
 static const char *TAG = "wavesense-tx";
 
-/* ──────────────────────────────────────────────
- *  CONFIGURATION — Update these for your setup
- * ────────────────────────────────────────────── */
+#define WIFI_SSID          "Wavesense"
+#define WIFI_PASS          "Hemsembo1ism3"
+#define MQTT_BROKER_URI    "mqtt://pi.local"
+#define WIFI_CHANNEL       1
+#define TX_POWER_DEFAULT   20
+#define TX_POWER_MIN        1
+#define TX_POWER_MAX       20
 
-/* Wi-Fi channel: must match your laptop's mobile hotspot channel.
- * Check with: netsh wlan show interfaces */
-#define WIFI_CHANNEL 6
+// This MAC will appear in RX CSI info->mac — must match RX TX_MAC[]
+static const uint8_t TX_MAC[6] = {0x1a, 0x00, 0x00, 0x00, 0x00, 0x01};
 
-/* Source MAC address for ESP-NOW frames.
- * The RX filters on this address to ignore other traffic. */
-static const uint8_t TX_MAC[6] = {0x1a, 0x00, 0x00, 0x00, 0x00, 0x00};
+#define WIFI_CONNECTED_BIT BIT0
+#define MQTT_CONNECTED_BIT BIT1
 
-/* Broadcast address — ESP-NOW peer destination */
-static const uint8_t BROADCAST_MAC[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+static EventGroupHandle_t       s_evt_group    = NULL;
+static esp_mqtt_client_handle_t s_mqtt_client  = NULL;
+static volatile int             s_tx_power_dbm = TX_POWER_DEFAULT;
+static uint8_t                  s_radio_channel = WIFI_CHANNEL;
+static uint32_t                 s_seq           = 0;
 
-/* Packets per second. 100 Hz gives good CSI resolution without flooding. */
-#define TX_RATE_HZ 100
+// 802.11 Null Data frame (Allowed by ESP-IDF, forces high-speed OFDM)
+static uint8_t s_probe_frame[] = {
+    0x40, 0x00,                          // [0-1] Frame control: Null Data (No Payload)
+    0x00, 0x00,                          // [2-3] Duration
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,  // [4-9] Addr1: Receiver (Broadcast)
+    0x1a, 0x00, 0x00, 0x00, 0x00, 0x01,  // [10-15] Addr2: TX MAC (Source)
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff,  // [16-21] Addr3: BSSID (Broadcast)
+    0x00, 0x00                           // [22-23] Sequence control
+};
 
-/* ────────────────────────────────────────────── */
+static void apply_tx_power(int dbm)
+{
+    if (dbm < TX_POWER_MIN) dbm = TX_POWER_MIN;
+    if (dbm > TX_POWER_MAX) dbm = TX_POWER_MAX;
+    s_tx_power_dbm = dbm;
+    esp_wifi_set_max_tx_power((int8_t)(dbm * 4));
+    ESP_LOGI(TAG, "TX power -> %d dBm", dbm);
+}
 
-static esp_now_peer_info_t broadcast_peer;
+static void wifi_event_handler(void *arg, esp_event_base_t base,
+                               int32_t id, void *data)
+{
+    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
+        esp_wifi_connect();
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        xEventGroupClearBits(s_evt_group, WIFI_CONNECTED_BIT);
+        esp_wifi_connect();
+    } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
+        xEventGroupSetBits(s_evt_group, WIFI_CONNECTED_BIT);
+    }
+}
 
 static void wifi_init(void)
 {
-    /* Create default event loop and network interface */
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_netif_create_default_wifi_sta();
 
-    /* Initialize Wi-Fi with default config */
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    /* STA mode — we don't associate with any AP, just use the radio */
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(
+        WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(
+        IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, NULL, NULL));
+
+    wifi_config_t wc = {};
+    strcpy((char *)wc.sta.ssid,     WIFI_SSID);
+    strcpy((char *)wc.sta.password, WIFI_PASS);
+    wc.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
 
-    /* HT40 bandwidth for wider channel (more subcarriers = better CSI) */
-    ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT40));
+    // Set TX MAC before start
+    esp_err_t mac_err = esp_wifi_set_mac(WIFI_IF_STA, TX_MAC);
+    if (mac_err != ESP_OK)
+        ESP_LOGE(TAG, "set_mac failed: %s", esp_err_to_name(mac_err));
 
+    ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20));
     ESP_ERROR_CHECK(esp_wifi_start());
-
-    /* Disable power save — critical for consistent 100 Hz timing */
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
-    /* Set channel with HT40 secondary channel below */
-    ESP_ERROR_CHECK(esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_BELOW));
+    // Verify MAC
+    uint8_t actual_mac[6];
+    esp_wifi_get_mac(WIFI_IF_STA, actual_mac);
+    Serial.printf(">>> TX MAC: %02x:%02x:%02x:%02x:%02x:%02x <<<\n",
+                  actual_mac[0], actual_mac[1], actual_mac[2],
+                  actual_mac[3], actual_mac[4], actual_mac[5]);
 
-    /* Set our custom MAC so the RX can identify us */
-    ESP_ERROR_CHECK(esp_wifi_set_mac(WIFI_IF_STA, TX_MAC));
+    // Also update Addr2 in probe frame to match actual MAC
+    memcpy(&s_probe_frame[10], actual_mac, 6);
 
-    ESP_LOGI(TAG, "Wi-Fi initialized: channel=%d, MAC=%02x:%02x:%02x:%02x:%02x:%02x",
-             WIFI_CHANNEL, TX_MAC[0], TX_MAC[1], TX_MAC[2],
-             TX_MAC[3], TX_MAC[4], TX_MAC[5]);
+    ESP_LOGI(TAG, "Connecting to '%s'...", WIFI_SSID);
+    xEventGroupWaitBits(s_evt_group, WIFI_CONNECTED_BIT,
+                        pdFALSE, pdFALSE, portMAX_DELAY);
+
+    wifi_second_chan_t sec;
+    esp_wifi_get_channel(&s_radio_channel, &sec);
+    ESP_LOGI(TAG, "Radio on channel %d", s_radio_channel);
 }
 
-static void espnow_init(void)
+static void mqtt_event_handler(void *arg, esp_event_base_t base,
+                               int32_t id, void *data)
 {
-    ESP_ERROR_CHECK(esp_now_init());
-
-    /* Set the Primary Master Key for ESP-NOW */
-    ESP_ERROR_CHECK(esp_now_set_pmk((uint8_t *)"pmk1234567890123"));
-
-    /* Add broadcast peer */
-    memset(&broadcast_peer, 0, sizeof(broadcast_peer));
-    memcpy(broadcast_peer.peer_addr, BROADCAST_MAC, 6);
-    broadcast_peer.channel = WIFI_CHANNEL;
-    broadcast_peer.ifidx = WIFI_IF_STA;
-    broadcast_peer.encrypt = false;
-
-    ESP_ERROR_CHECK(esp_now_add_peer(&broadcast_peer));
-
-    ESP_LOGI(TAG, "ESP-NOW initialized with broadcast peer");
+    esp_mqtt_event_handle_t ev = (esp_mqtt_event_handle_t)data;
+    switch (id) {
+        case MQTT_EVENT_CONNECTED: {
+            xEventGroupSetBits(s_evt_group, MQTT_CONNECTED_BIT);
+            esp_mqtt_client_subscribe_single(s_mqtt_client,
+                                             "wavesense/tx/power", 1);
+            char buf[8];
+            snprintf(buf, sizeof(buf), "%d", (int)s_tx_power_dbm);
+            esp_mqtt_client_publish(s_mqtt_client,
+                "wavesense/tx/power/state", buf, 0, 1, 1);
+            break;
+        }
+        case MQTT_EVENT_DISCONNECTED:
+            xEventGroupClearBits(s_evt_group, MQTT_CONNECTED_BIT);
+            break;
+        case MQTT_EVENT_DATA: {
+            if (!ev->topic || !ev->data) break;
+            char topic[64] = {0};
+            memcpy(topic, ev->topic, ev->topic_len < 63 ? ev->topic_len : 63);
+            if (strcmp(topic, "wavesense/tx/power") == 0) {
+                char payload[16] = {0};
+                memcpy(payload, ev->data,
+                       ev->data_len < 15 ? ev->data_len : 15);
+                apply_tx_power(atoi(payload));
+                char ack[8];
+                snprintf(ack, sizeof(ack), "%d", (int)s_tx_power_dbm);
+                esp_mqtt_client_publish(s_mqtt_client,
+                    "wavesense/tx/power/state", ack, 0, 1, 1);
+            }
+            break;
+        }
+        default: break;
+    }
 }
 
-void app_main(void)
+static void mqtt_init(void)
 {
-    /* Initialize NVS flash (required by Wi-Fi driver) */
+    esp_mqtt_client_config_t mc = {};
+    mc.broker.address.uri           = MQTT_BROKER_URI;
+    mc.credentials.client_id        = "wavesense-tx";
+    mc.session.keepalive             = 60;
+    mc.network.reconnect_timeout_ms  = 5000;
+    s_mqtt_client = esp_mqtt_client_init(&mc);
+    esp_mqtt_client_register_event(s_mqtt_client, MQTT_EVENT_ANY,
+                                   mqtt_event_handler, NULL);
+    esp_mqtt_client_start(s_mqtt_client);
+}
+
+// TX task — pinned to core 1, priority 10
+// WiFi stack runs on core 0 — zero interference
+static void tx_task(void *arg)
+{
+    TickType_t last_wake = xTaskGetTickCount();
+    uint32_t last_ms = 0;
+
+    ESP_LOGI(TAG, "tx_task running on core %d", xPortGetCoreID());
+
+    while (1) {
+        s_seq++;
+
+        // Update sequence number in frame header
+        s_probe_frame[22] = (uint8_t)((s_seq << 4) & 0xff);
+        s_probe_frame[23] = (uint8_t)((s_seq >> 4) & 0xff);
+
+        // Send raw probe frame — bypasses ESP-NOW throttle
+        // true = use system sequence number
+        esp_wifi_80211_tx(WIFI_IF_STA, s_probe_frame,
+                          sizeof(s_probe_frame), true);
+
+        // Print timing every 100 frames
+        // delta MUST be ~1000ms to confirm true 100Hz
+        if (s_seq % 100 == 0) {
+            uint32_t now_ms = (uint32_t)millis();
+            Serial.printf("TX seq=%lu delta=%lums\n",
+                          (unsigned long)s_seq,
+                          (unsigned long)(now_ms - last_ms));
+            last_ms = now_ms;
+        }
+
+        // vTaskDelayUntil = fixed period regardless of execution time
+        // unlike vTaskDelay which adds delay AFTER execution
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(10));
+    }
+}
+
+void setup()
+{
+    Serial.begin(115200);
+    delay(2000);
+    Serial.println("=== WaveSense TX v7 booting ===");
+
+    s_evt_group = xEventGroupCreate();
+    if (!s_evt_group) {
+        Serial.println("FATAL: xEventGroupCreate failed");
+        esp_restart();
+    }
+
     esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
+        ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
 
     wifi_init();
-    espnow_init();
+    apply_tx_power(TX_POWER_DEFAULT);
+    mqtt_init();
 
-    ESP_LOGI(TAG, "=== WaveSense TX Started ===");
-    ESP_LOGI(TAG, "Broadcasting at %d Hz on channel %d", TX_RATE_HZ, WIFI_CHANNEL);
+    // Core 1, priority 10 = true 100Hz guaranteed
+    xTaskCreatePinnedToCore(tx_task, "tx_task", 4096, NULL, 10, NULL, 1);
 
-    /* Main loop: send ESP-NOW packets at the configured rate */
-    uint32_t packet_count = 0;
-    while (1) {
-        /* Send a small payload (4-byte counter) via ESP-NOW broadcast */
-        esp_err_t send_ret = esp_now_send(
-            broadcast_peer.peer_addr,
-            (const uint8_t *)&packet_count,
-            sizeof(packet_count)
-        );
+    Serial.println("=== WaveSense TX v7 ready ===");
+}
 
-        if (send_ret != ESP_OK) {
-            ESP_LOGW(TAG, "Send failed: %s", esp_err_to_name(send_ret));
-        }
-
-        packet_count++;
-
-        /* Sleep for the inter-packet interval */
-        usleep(1000000 / TX_RATE_HZ);
-    }
+void loop()
+{
+    vTaskDelay(pdMS_TO_TICKS(1000));
 }
