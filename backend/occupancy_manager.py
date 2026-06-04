@@ -1,120 +1,123 @@
 """
-WaveSense Occupancy Manager — State Machine + Ghost Booking + Janitorial Tracking
-
-Tracks occupancy state transitions, implements a 15-second ghost booking
-auto-cancel timer (condensed for demo), and accumulates usage time for
-the janitorial heatmap feature.
+WaveSense OccupancyManager v2.1
+────────────────────────────────
+Tracks room occupancy over time and exposes:
+  • per-hour / per-weekday heatmap
+  • ghost-booking detection  (room empty but calendar slot active)
+  • session statistics
 """
 
 import time
-import threading
+import collections
+from datetime import datetime
 
 
 class OccupancyManager:
-    # Ghost booking timeout: 15 seconds for live demo (production would be 5-15 min)
-    GHOST_TIMEOUT = 15.0
-
-    # Janitorial status thresholds (seconds occupied)
-    CLEAN_THRESHOLD = 30
-    MODERATE_THRESHOLD = 60
-
-    def __init__(self):
-        self._lock = threading.Lock()
-
-        # State tracking
-        self._state = "empty"           # "empty" or "occupied"
-        self._session_start = time.time()
-        self._last_update = time.time()
-
-        # Ghost booking
-        self._became_empty_at = None
-        self._ghost_booking_triggered = False
-        self._cancelled_count = 0
-
-        # Janitorial tracking
-        self._occupied_seconds = 0.0
+    def __init__(
+        self,
+        ghost_empty_sec:       float = 600.0,
+        ghost_short_session_sec: float = 120.0,
+        over_time_sec:         float = 7200.0,
+        heatmap_resolution:    int   = 1,
+    ):
+        self._ghost_empty_sec     = ghost_empty_sec
+        self._ghost_short_session = ghost_short_session_sec
+        self._over_time_sec       = over_time_sec
+        self._occupied      = False
+        self._state_since   = time.time()
+        self._sessions: list[tuple[float, float]] = []
+        self._session_start: float | None = None
+        self._ghost_booking = False
+        self._ghost_reason  = ""
+        self._overrun       = False
+        self._heatmap_occ   = [[0.0] * 24 for _ in range(7)]
+        self._heatmap_total  = [[0.0] * 24 for _ in range(7)]
+        self._last_tick      = time.time()
+        self._total_occupied_sec  = 0.0
+        self._total_tracked_sec   = 0.0
+        self._session_count       = 0
 
     def update(self, is_occupied: bool):
-        """
-        Call once per CSI sample processing cycle.
-        Manages state transitions, ghost booking timer, and usage accumulation.
-        """
-        with self._lock:
-            now = time.time()
-            dt = now - self._last_update
-            self._last_update = now
+        now = time.time()
+        dt  = now - self._last_tick
+        self._last_tick = now
+        self._total_tracked_sec += dt
+        dt_now = datetime.now()
+        wd, hr = dt_now.weekday(), dt_now.hour
+        self._heatmap_total[wd][hr] += dt
+        if is_occupied:
+            self._heatmap_occ[wd][hr] += dt
+            self._total_occupied_sec  += dt
+        if is_occupied != self._occupied:
+            self._on_transition(is_occupied, now)
+        self._occupied = is_occupied
+        self._evaluate_ghost(now)
 
-            # Accumulate occupied time
-            if self._state == "occupied":
-                self._occupied_seconds += dt
+    def _on_transition(self, new_state: bool, now: float):
+        if new_state:
+            self._session_start = now
+            self._ghost_booking = False
+            self._ghost_reason  = ""
+            self._overrun       = False
+        else:
+            if self._session_start is not None:
+                duration = now - self._session_start
+                self._sessions.append((self._session_start, now))
+                self._session_count += 1
+                if len(self._sessions) > 500:
+                    self._sessions.pop(0)
+                self._session_start = None
+                if duration < self._ghost_short_session:
+                    self._ghost_booking = True
+                    self._ghost_reason  = (
+                        f"Very short session ({duration:.0f}s). "
+                        "Possible ghost booking or sensor glitch."
+                    )
 
-            # State transitions
-            if is_occupied:
-                # Room is occupied
-                if self._state == "empty":
-                    self._state = "occupied"
-                # Reset ghost booking state
-                self._became_empty_at = None
-                self._ghost_booking_triggered = False
-            else:
-                # Room appears empty
-                if self._state == "occupied":
-                    # Just transitioned to empty — start ghost booking timer
-                    self._state = "empty"
-                    self._became_empty_at = now
-                    self._ghost_booking_triggered = False
-                elif self._state == "empty" and self._became_empty_at is not None:
-                    # Already empty — check if ghost booking should trigger
-                    elapsed = now - self._became_empty_at
-                    if elapsed >= self.GHOST_TIMEOUT and not self._ghost_booking_triggered:
-                        self._trigger_ghost_booking()
-
-    def _trigger_ghost_booking(self):
-        """Fire the mock Google Calendar API call."""
-        self._ghost_booking_triggered = True
-        self._cancelled_count += 1
-        print("\n" + "=" * 60)
-        print("  API CALL: Google Calendar meeting cancelled due to no-show")
-        print(f"  Cancellation #{self._cancelled_count}")
-        print("=" * 60 + "\n")
+    def _evaluate_ghost(self, now: float):
+        if self._occupied and self._session_start is not None:
+            elapsed = now - self._session_start
+            if elapsed > self._over_time_sec:
+                self._overrun       = True
+                self._ghost_booking = True
+                self._ghost_reason  = (
+                    f"Room occupied for {elapsed/3600:.1f}h — possible meeting overrun "
+                    "or ghost booking (sensor stuck)."
+                )
 
     def get_ghost_booking_status(self) -> dict:
-        """Return ghost booking state for the frontend."""
-        with self._lock:
-            if self._state == "occupied" or self._became_empty_at is None:
-                return {
-                    "active": False,
-                    "countdown": 0.0,
-                    "triggered": False,
-                    "cancelled_count": self._cancelled_count
-                }
-
-            elapsed = time.time() - self._became_empty_at
-            remaining = max(0.0, self.GHOST_TIMEOUT - elapsed)
-
-            return {
-                "active": not self._ghost_booking_triggered,
-                "countdown": round(remaining, 1),
-                "triggered": self._ghost_booking_triggered,
-                "cancelled_count": self._cancelled_count
-            }
+        now = time.time()
+        session_duration = (
+            round(now - self._session_start, 1)
+            if self._session_start else None
+        )
+        recent_durations = [
+            round(e - s, 1) for s, e in self._sessions[-5:]
+        ]
+        return {
+            "ghost_booking":      self._ghost_booking,
+            "overrun":            self._overrun,
+            "reason":             self._ghost_reason,
+            "session_duration_s": session_duration,
+            "recent_sessions_s":  recent_durations,
+            "session_count":      self._session_count,
+            "occupancy_pct":      round(
+                100.0 * self._total_occupied_sec
+                / max(1.0, self._total_tracked_sec), 1
+            ),
+        }
 
     def get_heatmap_data(self) -> dict:
-        """Return janitorial heatmap data for the frontend."""
-        with self._lock:
-            total = time.time() - self._session_start
-            occupied = self._occupied_seconds
-
-            if occupied < self.CLEAN_THRESHOLD:
-                status = "Clean"
-            elif occupied < self.MODERATE_THRESHOLD:
-                status = "Moderate"
-            else:
-                status = "Dirty"
-
-            return {
-                "room": "WaveSense-Room-1",
-                "total_session_seconds": round(total),
-                "occupied_seconds": round(occupied),
-                "status": status
-            }
+        matrix = []
+        for wd in range(7):
+            row = []
+            for hr in range(24):
+                total = self._heatmap_total[wd][hr]
+                occ   = self._heatmap_occ[wd][hr]
+                row.append(round(occ / total, 3) if total > 0 else 0.0)
+            matrix.append(row)
+        return {
+            "matrix":   matrix,
+            "weekdays": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            "hours":    list(range(24)),
+        }
