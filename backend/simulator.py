@@ -32,6 +32,8 @@ class CSISimulator:
         self._occupied = False
         self._phase = 0.0
         self._running = False
+        self._sample_count = 0
+        self._calibration_samples = 300  # 3 seconds at 100 Hz
 
         # MQTT client
         self._client = mqtt.Client(
@@ -41,7 +43,16 @@ class CSISimulator:
 
     def _generate_sample(self) -> dict:
         """Generate one CSI sample matching the ESP32-RX JSON format."""
-        if self._occupied:
+        self._sample_count += 1
+
+        # Simulate calibration phase (first few seconds)
+        is_calibrated = self._sample_count >= self._calibration_samples
+        cal_pct = min(100.0, (self._sample_count / self._calibration_samples) * 100.0)
+
+        if not is_calibrated:
+            # During calibration: send low-variance empty data
+            mean_amp = 15.0 + random.gauss(0, 0.3)
+        elif self._occupied:
             # Occupied: high variance with sinusoidal movement pattern
             base = 15.0
             movement = 5.0 * math.sin(self._phase * 0.1)
@@ -51,10 +62,11 @@ class CSISimulator:
             # Empty: low variance, just RF noise
             mean_amp = 15.0 + random.gauss(0, 0.8)
 
-        self._phase += 1.0
+        if is_calibrated:
+            self._phase += 1.0
 
-        # Generate per-subcarrier amplitudes (52 subcarriers for HT20)
-        nsub = 52
+        # Generate per-subcarrier amplitudes (64 subcarriers to match CSIProcessor)
+        nsub = 64
         amps = [max(0.0, mean_amp + random.gauss(0, 1.5)) for _ in range(nsub)]
 
         return {
@@ -63,7 +75,9 @@ class CSISimulator:
             "rssi": random.randint(-50, -30),
             "nsub": nsub,
             "mean": round(mean_amp, 2),
-            "amps": [round(a, 1) for a in amps]
+            "amps": [round(a, 1) for a in amps],
+            "cal": is_calibrated,
+            "cal_pct": round(cal_pct, 1)
         }
 
     def _input_thread(self):
@@ -130,4 +144,4 @@ class CSISimulator:
 
 if __name__ == "__main__":
     sim = CSISimulator()
-    sim.run(rate_hz=50)
+    sim.run(rate_hz=100)

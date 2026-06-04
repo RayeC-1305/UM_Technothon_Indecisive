@@ -717,57 +717,59 @@
         }
 
         // ── Janitorial / ghost rooms helpers ─────────────────────────────────
-        function updateJanitorialHeatmap(occupancyMatrix) {
+        function updateJanitorialHeatmap(roomsData) {
             const container = document.getElementById('janitorial-rooms');
             if (!container) return;
-            const rooms = ['Meeting Room A', 'Office B', 'Conference C', 'Lounge D'];
+            if (!roomsData || !roomsData.length) {
+                container.innerHTML = '<div class="room-heatmap-card"><div class="room-title">Waiting for data...</div></div>';
+                return;
+            }
             let html = '';
-            rooms.forEach((room, idx) => {
-                const roomMatrix = occupancyMatrix
-                    ? occupancyMatrix.map(day => day.map(h => Math.min(1, h * (0.5 + idx * 0.2))))
-                    : null;
-                const avg = roomMatrix
-                    ? (roomMatrix.flat().reduce((a,b)=>a+b,0)/(7*24) || 0).toFixed(2)
+            roomsData.forEach((room, idx) => {
+                const mat = room.heatmap ? room.heatmap.matrix : null;
+                const avg = mat
+                    ? (mat.flat().reduce((a,b)=>a+b,0)/(7*24) || 0).toFixed(2)
                     : '0.00';
+                const badge = room.is_primary ? ' <span style="color:#4fc3f7;font-size:0.7em;">📡 Live Sensor</span>' : '';
                 html += `<div class="room-heatmap-card">
-                            <div class="room-title">🧹 ${room}</div>
+                            <div class="room-title">🧹 ${room.name}${badge}</div>
                             <div class="heatmap-container" id="jan-heat-${idx}"></div>
                             <div class="cleaning-status">
                                 Usage intensity: ${avg} |
-                                Priority: ${avg > 0.6 ? 'High' : (avg > 0.3 ? 'Medium' : 'Low')}
+                                Priority: ${avg > 0.6 ? '🔴 High' : (avg > 0.3 ? '🟡 Medium' : '🟢 Low')}
                             </div>
                          </div>`;
             });
             container.innerHTML = html;
-            rooms.forEach((_, idx) => {
-                const mat = occupancyMatrix
-                    ? occupancyMatrix.map(day => day.map(h => Math.min(1, h * (0.5 + idx * 0.2))))
-                    : null;
-                if (mat) renderHeatmap(`jan-heat-${idx}`, mat);
+            roomsData.forEach((room, idx) => {
+                if (room.heatmap && room.heatmap.matrix) {
+                    renderHeatmap(`jan-heat-${idx}`, room.heatmap.matrix);
+                }
             });
             document.getElementById('last-clean').innerText = new Date().toLocaleDateString();
             document.getElementById('next-clean').innerText =
                 new Date(Date.now() + 2*86400000).toLocaleDateString();
         }
 
-        function updateGhostRoomsTable(ghostData) {
+        function updateGhostRoomsTable(roomsData) {
             const tbody = document.getElementById('ghost-rooms-tbody');
             if (!tbody) return;
-            const rooms = ['Meeting Room A', 'Office B', 'Conference C', 'Lounge D'];
-            const baseGhost = ghostData || {
-                active: false, countdown: 0, session_duration_s: 0,
-                overrun: false, triggered: false
-            };
+            if (!roomsData || !roomsData.length) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#666;">Waiting for data...</td></tr>';
+                return;
+            }
             tbody.innerHTML = '';
-            rooms.forEach((room, idx) => {
+            roomsData.forEach((room) => {
+                const g = room.ghost || {};
                 let statusText, statusClass, countdownVal, sessionDur, overrunVal;
-                const variant = (idx * 13) % 3;
-                if (baseGhost.active && variant !== 1) {
+                const badge = room.is_primary ? ' 📡' : '';
+
+                if (g.active) {
                     statusText = 'Active'; statusClass = 'badge-active';
-                    countdownVal = Math.max(0, baseGhost.countdown - idx*2);
-                    sessionDur = (baseGhost.session_duration_s || 0) + idx*10;
-                    overrunVal = baseGhost.overrun ? 'Yes' : 'No';
-                } else if (baseGhost.triggered || variant === 1) {
+                    countdownVal = g.countdown || 0;
+                    sessionDur = g.session_duration_s || 0;
+                    overrunVal = g.overrun ? 'Yes' : 'No';
+                } else if (g.triggered) {
                     statusText = 'Cancelled'; statusClass = 'badge-cancelled';
                     countdownVal = 0; sessionDur = '--'; overrunVal = '--';
                 } else {
@@ -775,7 +777,7 @@
                     countdownVal = 0; sessionDur = '--'; overrunVal = '--';
                 }
                 const row = `<tr>
-                    <td>${room}</td>
+                    <td>${room.name}${badge}</td>
                     <td class="${statusClass}">${statusText}</td>
                     <td>${statusText === 'Active' ? countdownVal : '--'}</td>
                     <td>${sessionDur !== '--' ? sessionDur+'s' : '--'}</td>
@@ -855,7 +857,11 @@
             if (d.heatmap && d.heatmap.matrix) {
                 currentHeatmapMatrix = d.heatmap.matrix;
                 renderHeatmap('heatmap-container', currentHeatmapMatrix);
-                updateJanitorialHeatmap(currentHeatmapMatrix);
+            }
+            // Update multi-room tabs with real room data
+            if (d.rooms && d.rooms.length) {
+                updateJanitorialHeatmap(d.rooms);
+                updateGhostRoomsTable(d.rooms);
             }
 
             // Debug panel
@@ -882,7 +888,6 @@
             document.getElementById('d-pcoh').textContent = db.phase_coherence ?? '--';
 
             lastGhost = g;
-            updateGhostRoomsTable(g);
         }
 
         // ── Tab switching ────────────────────────────────────────────────────
@@ -924,8 +929,8 @@
             if (!currentHeatmapMatrix) {
                 const dummy = Array(7).fill().map(() => Array(24).fill(0.1));
                 renderHeatmap('heatmap-container', dummy);
-                updateJanitorialHeatmap(dummy);
-                updateGhostRoomsTable({ active: false, countdown: 0 });
+                updateJanitorialHeatmap([]);
+                updateGhostRoomsTable([]);
             }
             // Inject dummy chart data so axes are visible immediately
             pushChart(scoreChart, [0], 2.0);

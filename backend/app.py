@@ -12,50 +12,54 @@ from flask import Flask, render_template, Response, jsonify, stream_with_context
 import paho.mqtt.client as mqtt
 
 from csi_processor import CSIProcessor
-from occupancy_manager import OccupancyManager
+from demo_rooms import DemoRoomManager
+from google_home import google_home, report_state, request_sync
 
 MQTT_BROKER = "localhost"
 MQTT_PORT   = 1883
 
 app  = Flask(__name__)
+app.register_blueprint(google_home)
 lock = threading.Lock()
 
 csi = CSIProcessor(
-    calibration_sec           = 30.0,
+    calibration_sec           = 5.0,       # Fast calibration for demo
     sample_rate_hz            = 100.0,
     sensitivity               = 2.0,
-    ema_alpha                 = 0.08,
-    hysteresis_sec            = 8.0,
-    min_trigger_frames        = 30,
+    ema_alpha                 = 0.15,      # Faster response
+    hysteresis_sec            = 1.5,       # Quick vacancy detection
+    min_trigger_frames        = 5,         # Fast occupied detection
     amp_outlier_sigma         = 4.0,
-    sustain_frames            = 10,
-    use_phase_veto            = True,
+    sustain_frames            = 3,         # Quick sustain
+    use_phase_veto            = False,     # Disabled for demo speed
     phase_coherence_min       = 0.25,
     cal_trim_pct              = 0.10,
-    short_win_frames          = 100,
-    mid_win_frames            = 300,
-    long_win_frames           = 600,
-    win_weights               = (0.50, 0.30, 0.20),
+    short_win_frames          = 30,        # Smaller windows = faster response
+    mid_win_frames            = 80,
+    long_win_frames           = 150,
+    win_weights               = (0.60, 0.25, 0.15),  # More weight on short window
     bg_recal_interval_sec     = 120.0,
     bg_recal_window_sec       = 30.0,
     bg_recal_max_motion       = 0.5,
     bg_recal_max_still        = 0.25,
     bg_recal_blend_alpha      = 0.30,
-    still_sustain_frames      = 15,
-    still_max_rise_per_frame  = 0.02,
-    use_phase_still           = True,
-    phase_still_weight        = 0.4,
-    vital_enabled             = True,
+    still_sustain_frames      = 3,         # Quick still detection
+    still_max_rise_per_frame  = 0.05,      # More sensitive
+    use_phase_still           = False,     # Disabled for demo
+    phase_still_weight        = 0.0,
+    vital_enabled             = False,     # Disabled for demo speed
     vital_window_sec          = 30.0,
     vital_min_occupied_sec    = 10.0,
     vital_update_every_sec    = 1.0,
-    strong_reset_thr          = 0.7,
-    weak_hold_thr             = 0.5,
-    quick_off_threshold_frames = 30,
+    strong_reset_thr          = 0.3,       # Lower threshold = easier vacancy
+    weak_hold_thr             = 0.2,
+    quick_off_threshold_frames = 5,        # Very quick off
     bg_recal_timeout_sec      = 3600.0,
+    report_vacant_delay_sec   = 0.5,       # Minimal delay
+    vacancy_corr_guard        = 0.70,      # Lower guard = easier vacancy
 )
 
-occupancy       = OccupancyManager()
+demo_rooms      = DemoRoomManager()
 relay_state     = False
 last_csi_ts     = 0.0
 hw_calibrated   = False
@@ -78,10 +82,11 @@ def process_frame(data: dict):
         )
         if not hw_calibrated or csi.is_calibrating():
             return
-        occupancy.update(is_occ)
+        demo_rooms.update_primary(is_occ)
         if is_occ != relay_state:
             relay_state = is_occ
             publish_relay(relay_state)
+            report_state(is_occ)
             print(f"[Relay] -> {'ON  (OCCUPIED)' if relay_state else 'OFF (EMPTY)'}")
 
 # ── Watchdog thread (v7.3) ──
@@ -94,6 +99,7 @@ def watchdog_thread():
                 if relay_state:
                     relay_state = False
                     publish_relay(False)
+                    report_state(False)
                     print("[Watchdog] No CSI for 15 s – forcing relay OFF")
 threading.Thread(target=watchdog_thread, daemon=True).start()
 
@@ -147,8 +153,9 @@ def _snapshot() -> dict:
         "score_history":    [round(float(s), 3) for s in csi.get_score_history(200)],
         "still_history":    [round(float(s), 3) for s in csi.get_still_history(200)],
         "relay_state":      relay_state,
-        "ghost_booking":    occupancy.get_ghost_booking_status(),
-        "heatmap":          occupancy.get_heatmap_data(),
+        "ghost_booking":    demo_rooms.get_primary_ghost(),
+        "heatmap":          demo_rooms.get_primary_heatmap(),
+        "rooms":            demo_rooms.get_all_room_data(),
         "connected":        (time.time() - last_csi_ts) < 5.0,
         "debug":            debug,
         "bg_recal_count":   debug.get("bg_recal_count", 0),
@@ -219,6 +226,34 @@ def set_tx_power():
         return jsonify({"status": "error", "reason": "power must be 2–20 dBm"}), 400
     mqtt_client.publish("wavesense/tx/power", str(power), qos=1)
     return jsonify({"status": "ok", "power_dbm": power})
+
+@app.route('/api/google_home/sync', methods=['POST'])
+def google_home_sync():
+    """Manually trigger Google Home device sync."""
+    ok = request_sync()
+    return jsonify({"status": "ok" if ok else "error", "synced": ok})
+
+@app.route('/api/google_home/test', methods=['POST'])
+def google_home_test():
+    """
+    Manually test Google Home integration.
+    Sends a state report to Google Home without changing actual occupancy.
+    Usage: POST /api/google_home/test with JSON body {"occupied": true}
+    """
+    data = request.get_json(silent=True) or {}
+    occupied = data.get("occupied", True)
+    result = report_state(occupied)
+    return jsonify({
+        "status": "ok" if result else "error",
+        "reported_state": "ON (occupied)" if occupied else "OFF (empty)",
+        "google_home_updated": result
+    })
+
+@app.route('/api/demo/reset', methods=['POST'])
+def demo_reset():
+    """Reset all demo rooms to clean state."""
+    demo_rooms.reset()
+    return jsonify({"status": "ok", "message": "All rooms reset"})
 
 if __name__ == '__main__':
     print("=" * 60)
