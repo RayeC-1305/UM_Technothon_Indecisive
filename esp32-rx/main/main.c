@@ -231,7 +231,7 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base,
                 // Relay is active LOW: occupied -> LOW (0), vacant -> HIGH (1)
                 // If your relay module is active HIGH, change the line below to:
                 // gpio_set_level(RELAY_GPIO, on ? 1 : 0);
-                gpio_set_level(RELAY_GPIO, on ? 0 : 1);
+                gpio_set_level(RELAY_GPIO, on ? 1 : 0);
                 ESP_LOGI(TAG, "Relay set to %d (payload='%s')", on, payload);
             }
             break;
